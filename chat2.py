@@ -4,6 +4,10 @@ from langchain_ollama import ChatOllama, OllamaEmbeddings
 from chromadb.utils import embedding_functions
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
 
+OLLAMA_HOST="http://192.168.4.22"
+CHAT_MODEL="qwen3:8b"
+CLASSIFIER_MODEL="qwen3:8b"
+
 def live_search_tool(user_prompt):
     search = DuckDuckGoSearchAPIWrapper(max_results=3)
     trusted_sites = [
@@ -19,12 +23,12 @@ def live_search_tool(user_prompt):
     try:
         search_results = search.run(combined_query)
         if search_results:
+            print(f"Search results: {search_results}")
             return search_results
         return "No recent external intelligence found"
 
     except Exception as e:
         return f"Live search failed: {str(e)}"
-        return f"Live CTI search failed: {str(e)}"
 
 embedding_func = embedding_functions.OllamaEmbeddingFunction(
         url = "http://localhost:11434/api/embeddings",
@@ -33,10 +37,10 @@ embedding_func = embedding_functions.OllamaEmbeddingFunction(
 
 client = chromadb.PersistentClient(path="./mitre_db")
 collection = client.get_collection(name="mitre_attack", embedding_function=embedding_func)
-llm = ChatOllama(base_url = "http://192.168.4.50:11434", model="qwen3:8b")
+llm = ChatOllama(base_url = f"{OLLAMA_HOST}:11434", model=CHAT_MODEL)
 #llm = ChatOllama(model="llama3.2:1b")
 #classifier = ChatOllama(model="llama3.2:1b")
-classifier = ChatOllama(base_url = "http://192.168.4.50:11434", model="qwen3:8b")
+classifier = ChatOllama(base_url = f"{OLLAMA_HOST}:11434", model=CLASSIFIER_MODEL)
 
 st.title("CTI Analyst Bot (With Intent Routing)")
 
@@ -91,7 +95,7 @@ if prompt := st.chat_input("Ask about a TTP..."):
             mitre_context = "\n".join(mitre_results['documents'][0])
             recent_keywords = ["latest", "recent", "cve-", "zero-day", "new technique", "2026"]
             if any(keyword in prompt.lower() for keyword in recent_keywords):
-                st.sidebar.warning("Fetchingi live external inteliigence")
+                st.sidebar.warning("Fetching live external inteliigence")
                 live_context = live_search_tool(prompt)
 
                 context = (
