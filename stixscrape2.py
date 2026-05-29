@@ -63,7 +63,8 @@ for t in techniques:
         
         group_name = group.name
         # Extract aliases (e.g., APT29, Cozy Bear, NOBELIUM)
-        aliases = ", ".join(group.get("aliases", [])) 
+        aliases = ", ".join(getattr(group, "aliases", [])) 
+        print(aliases)
         
         for rel in relationships:
             # The relationship object often contains the precise description 

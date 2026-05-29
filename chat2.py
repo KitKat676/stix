@@ -84,54 +84,27 @@ if prompt := st.chat_input("Ask about a TTP..."):
     
         context = ""
 
-    # Adjust recall based on intent.
-        # Since flattened data creates more chunks, bump ANALYTICAL/EXPLORATORY to 7 or 8
-        if intent == "FACTUAL":
-            results = collection.query(query_texts=[prompt], n_results=1)
-            context = "\n".join(results['documents'][0])
-        else:
-            results = collection.query(query_texts=[prompt], n_results=15)
-            mitre_results = collection.query(query_texts=[prompt], n_results=4)
-            mitre_context = "\n".join(mitre_results['documents'][0])
-            recent_keywords = ["latest", "recent", "cve-", "zero-day", "new technique", "2026"]
-            if any(keyword in prompt.lower() for keyword in recent_keywords):
-                st.sidebar.warning("Fetching live external inteliigence")
-                live_context = live_search_tool(prompt)
+        # Adjust recall based on intent.
+        n_results_val = 5 if intent == "FACTUAL" else 15
+        results = collection.query(query_texts=[prompt], n_results=n_results_val)
 
-                context = (
-                        f"---START OFFICIAL MITRE MATRIX BASELINE --- \n{mitre_context}\n"
-                        f"---START RECENT LIVE INTEL ---\n{live_context}"
-                        )
-            else:
-                context = mitre_context
-
-            if intent == "ANALYTICAL" and "latest" in prompt:
-                mitre_context = get_chroma_context(prompt)
-                live_context = live_search_tool(f"site:cisa.gov/news-events/cybsersecurity/cybersecurity-advisories {prompt}")
-                context = f"Official MITRE Background: \n{mitre_context}\n\nRecent Live Intelligence: \n {live_context}"
-    
         # Reconstruct a highly structured context using metadata
         context_chunks = []
-
-        extracted_results = []
-        for doc, meta, dist in zip(results['documents'][0], results['metadatas'][0], results['distances'][0]):
-            extracted_results.append({
-                "document": doc,
-                "metadata": meta,
-                "distance": dist
-                })
-
-        for er in extracted_results:
-            print(er['metadata'].keys())
-        sorted_results = sorted(extracted_results, 
-                                key=lambda x: (x['metadata']['modified_date'], -x['distance']), 
-                                reverse = True)
-
-        top_results = sorted_results[:5]
-        context = "\n---\n".join(item['document'] for item in top_results)
-    
         if results and results['documents'] and len(results['documents'][0]) > 0:
-            for doc, meta in zip(results['documents'][0], results['metadatas'][0]):
+            extracted_results = []
+            for doc, meta, dist in zip(results['documents'][0], results['metadatas'][0], results['distances'][0]):
+                extracted_results.append({"document": doc, "metadata": meta, "distance": dist})
+
+            # Fix: Sort primarily by semantic match (Chroma L2 distance: lower is better).
+            # Tie-break with modified_date (larger/newer is better).
+            sorted_results = sorted(extracted_results, 
+                                    key=lambda x: (x['distance'], -x['metadata'].get('modified_date', 0)))
+
+            top_results = sorted_results[:n_results_val]
+
+            for item in top_results:
+                doc = item['document']
+                meta = item['metadata']
                 if meta["type"] == "technique_definition":
                     context_chunks.append(f"=== BASE TECHNIQUE DEFINITION ===\n{doc}\n")
                 elif meta["type"] == "procedure_flattened":
@@ -140,9 +113,23 @@ if prompt := st.chat_input("Ask about a TTP..."):
                         f"Actor: {meta.get('group_name', 'Unknown')}\n"
                         f"{doc}\n"
                     )
-            context = "\n-----------------------\n".join(context_chunks)
-        else:
-            context = ""
+            
+        mitre_context = "\n-----------------------\n".join(context_chunks)
+
+        # Handle recent / live intelligence regardless of intent
+        recent_keywords = ["latest", "recent", "cve-", "zero-day", "new technique", "2026"]
+        live_context = ""
+        if any(keyword in prompt.lower() for keyword in recent_keywords):
+            st.sidebar.warning("Fetching live external intelligence")
+            if intent == "ANALYTICAL" and "latest" in prompt.lower():
+                live_context = live_search_tool(f"site:cisa.gov/news-events/cybersecurity/cybersecurity-advisories {prompt}")
+            else:
+                live_context = live_search_tool(prompt)
+
+        # Assemble final context
+        context = f"---START OFFICIAL MITRE MATRIX BASELINE ---\n{mitre_context}\n"
+        if live_context:
+            context += f"\n---START RECENT LIVE INTEL ---\n{live_context}\n"
     
         print(f"Context Sent to LLM:\n{context}")
     
